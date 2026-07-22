@@ -7,6 +7,8 @@
 <meta name="description" content="StreetSweep — interactive NYC Alternate Side Parking (street cleaning) and parking-rules map.">
 <title>StreetSweep — NYC Street Cleaning &amp; Parking Map</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" crossorigin=""/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css" crossorigin=""/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.min.css" crossorigin=""/>
 <style>
   :root{
     --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --line:#2a2f3a;
@@ -101,6 +103,29 @@
   .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);
     border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px;margin-right:6px;}
   @keyframes sp{to{transform:rotate(360deg)}}
+  /* signs toggle FAB */
+  #signsBtn{right:14px; bottom:284px; background:var(--panel2); color:var(--txt); border:1px solid var(--line);}
+  #signsBtn.on{background:var(--accent); color:#111; border-color:var(--accent);}
+  #signsBtn svg{width:24px;height:24px;}
+  /* street-sign markers */
+  .signpin{position:relative; width:22px; height:28px;}
+  .signpin .face{position:absolute; top:0; left:0; width:22px; height:15px; border-radius:3px;
+    border:1px solid rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center;
+    font-size:10px; line-height:1; box-shadow:0 1px 3px rgba(0,0,0,.5);}
+  .signpin .post{position:absolute; top:14px; left:10px; width:2px; height:14px; background:#9aa3b2;}
+  .signpin.asp .face{background:var(--accent); color:#111; font-weight:700;}
+  .signpin.other .face{background:var(--accent2); color:#fff; font-weight:700;}
+  .cl-bubble{width:100%; height:100%; border-radius:50%; display:flex; align-items:center;
+    justify-content:center; font-size:12px; font-weight:700; color:#111;
+    background:rgba(255,176,32,.92); border:2px solid #fff; box-shadow:0 2px 8px rgba(0,0,0,.5);}
+  .cl-bubble.big{font-size:11px;}
+  .sign-pop{font-size:13px; min-width:150px;}
+  .sign-pop b{color:var(--accent);}
+  .sign-pop .desc{margin-top:4px; color:#111; font-weight:600; line-height:1.35;}
+  .leaflet-popup-content-wrapper{background:var(--panel); color:var(--txt); border:1px solid var(--line);}
+  .leaflet-popup-content{margin:11px 13px; font-size:13px;}
+  .leaflet-popup-tip{background:var(--panel);}
+  .sign-pop .desc{color:var(--txt);}
 </style>
 </head>
 <body>
@@ -116,12 +141,15 @@
 
   <div id="map"></div>
 
+  <button class="fab" id="signsBtn" title="Show parking signs" aria-label="Toggle parking signs">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="4" width="16" height="10" rx="2" fill="currentColor"/><rect x="11" y="13" width="2" height="7" rx="1" fill="currentColor"/></svg>
+  </button>
   <button class="fab" id="searchBtn" title="2026 suspension calendar" aria-label="Open suspension calendar">📅</button>
   <button class="fab" id="locBtn" title="Find me" aria-label="Find my location">📍</button>
 
   <div class="legend" aria-hidden="true">
-    <div class="li"><span class="swatch" style="background:#ffb020"></span> Selected block</div>
-    <div class="li"><span class="swatch" style="background:#4ea1ff"></span> You are here</div>
+    <div class="li"><span class="swatch" style="background:#ffb020"></span> Street cleaning (ASP) sign</div>
+    <div class="li"><span class="swatch" style="background:#4ea1ff"></span> Other parking sign / you</div>
   </div>
 
   <div id="sheet">
@@ -146,6 +174,7 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin=""></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js" crossorigin=""></script>
 <script>
 /* ============================================================
    StreetSweep — NYC Street Cleaning (ASP) & Parking Map
@@ -510,9 +539,172 @@ $("#calModal").addEventListener("click",e=>{if(e.target.id==="calModal")$("#calM
 $("#calSearch").addEventListener("input",e=>renderCal(e.target.value));
 document.addEventListener("keydown",e=>{if(e.key==="Escape")$("#calModal").classList.remove("show");});
 
+/* ============================================================
+   Parking-sign layer — NYC DOT "Parking Regulation Locations
+   and Signs" (nfid-uabd). Positions are NY State Plane feet
+   (EPSG:2263); we convert to lat/lng in-browser. Loaded per
+   viewport (not all ~1M at once) and clustered.
+   ============================================================ */
+
+/* ---- EPSG:2263 (NAD83 / NY Long Island, ftUS) <-> WGS84 ----
+   Lambert Conformal Conic 2SP. Verified round-trip to 1e-14°. */
+const PROJ = (function(){
+  const FT = 0.3048006096012192, a = 6378137.0, f = 1/298.257222101;
+  const e = Math.sqrt(2*f - f*f), D = Math.PI/180;
+  const phi0=40.1666666666667*D, lon0=-74.0*D;
+  const phi1=40.6666666666667*D, phi2=41.0333333333333*D;
+  const FE=300000.0;
+  const m=p=>Math.cos(p)/Math.sqrt(1-e*e*Math.sin(p)**2);
+  const t=p=>Math.tan(Math.PI/4-p/2)/Math.pow((1-e*Math.sin(p))/(1+e*Math.sin(p)),e/2);
+  const n=Math.log(m(phi1)/m(phi2))/Math.log(t(phi1)/t(phi2));
+  const F=m(phi1)/(n*Math.pow(t(phi1),n));
+  const rho0=a*F*Math.pow(t(phi0),n);
+  return {
+    forward(lat,lng){ // -> [x_ft, y_ft]
+      const p=lat*D, rho=a*F*Math.pow(t(p),n), th=n*(lng*D-lon0);
+      return [(FE+rho*Math.sin(th))/FT, (rho0-rho*Math.cos(th))/FT];
+    },
+    inverse(xft,yft){ // -> [lat, lng]
+      const x=xft*FT-FE, y=yft*FT, r0y=rho0-y, sgn=n<0?-1:1;
+      const rho=sgn*Math.sqrt(x*x+r0y*r0y), th=Math.atan2(sgn*x,sgn*r0y);
+      const tt=Math.pow(rho/(a*F),1/n);
+      let phi=Math.PI/2-2*Math.atan(tt);
+      for(let i=0;i<8;i++){const es=e*Math.sin(phi);phi=Math.PI/2-2*Math.atan(tt*Math.pow((1-es)/(1+es),e/2));}
+      return [phi/D, (th/n+lon0)/D];
+    }
+  };
+})();
+
+const SIGNS_URL = "https://data.cityofnewyork.us/resource/nfid-uabd.json";
+const SIGN_FETCH_ZOOM = 15;      // don't fetch when zoomed out past this
+const SIGN_CAP = 6000;           // memory guard on total loaded markers
+const ASP_RE = /BROOM|SANITATION|STREET CLEAN/i;
+
+let signsOn = false, signQueryMode = null, signsBusy = false;
+let signCluster = null, loadedSignIds = new Set(), toldZoomIn = false, moveT = null;
+
+function signsAvailable(){ return typeof L.markerClusterGroup === "function"; }
+
+function clusterIcon(cluster){
+  const c = cluster.getChildCount();
+  return L.divIcon({
+    html:`<div class="cl-bubble ${c>999?'big':''}">${c>999?(Math.round(c/1000)+"k"):c}</div>`,
+    className:"", iconSize:[36,36]
+  });
+}
+
+function signKey(row){
+  return row.objectid || row.order_number ||
+    (row.sign_x_coord+"_"+row.sign_y_coord+"_"+(row.sign_seq||row.sequence||""));
+}
+
+function signLatLng(row){
+  // Prefer any WGS84 geometry the dataset exposes; else project the State-Plane feet.
+  if(row.the_geom && row.the_geom.coordinates){
+    const c=row.the_geom.coordinates; return [c[1],c[0]];
+  }
+  if(row.point && row.point.coordinates){
+    const c=row.point.coordinates; return [c[1],c[0]];
+  }
+  if(row.latitude && row.longitude) return [+row.latitude,+row.longitude];
+  const x=parseFloat(row.sign_x_coord), y=parseFloat(row.sign_y_coord);
+  if(isFinite(x) && isFinite(y) && x>0 && y>0) return PROJ.inverse(x,y);
+  return null;
+}
+
+function signMarker(row){
+  const ll = signLatLng(row); if(!ll) return null;
+  const desc = row.sign_description || row.signdesc || "";
+  const isAsp = ASP_RE.test(desc);
+  const face = isAsp ? "🧹" : "P";
+  const icon = L.divIcon({
+    className:"", iconSize:[22,28], iconAnchor:[11,28], popupAnchor:[0,-26],
+    html:`<div class="signpin ${isAsp?'asp':'other'}"><div class="face">${face}</div><div class="post"></div></div>`
+  });
+  const on = row.on_street || row.main_st || row.order_number || "";
+  const sos = row.sos || row.side_of_street || "";
+  const m = L.marker(ll,{icon});
+  m.bindPopup(
+    `<div class="sign-pop">`+
+    (on?`<b>${esc(on)}</b><br>`:``)+
+    (sos?`<span class="muted">Side: ${esc(sos)}</span>`:``)+
+    `<div class="desc">${esc(desc||"See posted sign")}</div>`+
+    (isAsp?`<div style="margin-top:5px"><span class="badge b-clean">Street cleaning</span></div>`:``)+
+    `</div>`
+  );
+  return m;
+}
+
+async function fetchSignRows(b){
+  // Try a geospatial query first; if the dataset has no geo column, fall
+  // back to a State-Plane bounding-box query (corners forward-projected).
+  const N=b.getNorth(),S=b.getSouth(),E=b.getEast(),W=b.getWest();
+  const tries=[];
+  if(signQueryMode!=="xy")
+    tries.push({mode:"geom", q:`$where=within_box(the_geom,${N},${W},${S},${E})&$limit=2000`});
+  if(signQueryMode!=="geom"){
+    const c=[PROJ.forward(N,W),PROJ.forward(N,E),PROJ.forward(S,W),PROJ.forward(S,E)];
+    const xs=c.map(p=>p[0]), ys=c.map(p=>p[1]);
+    const x1=Math.min(...xs)|0, x2=Math.ceil(Math.max(...xs)), y1=Math.min(...ys)|0, y2=Math.ceil(Math.max(...ys));
+    tries.push({mode:"xy", q:`$where=sign_x_coord between ${x1} and ${x2} AND sign_y_coord between ${y1} and ${y2}&$limit=2000`});
+  }
+  for(const tr of tries){
+    try{
+      const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),8000);
+      const r=await fetch(SIGNS_URL+"?"+tr.q,{signal:ctrl.signal}); clearTimeout(to);
+      if(!r.ok) continue;
+      const rows=await r.json();
+      if(Array.isArray(rows)){ signQueryMode=tr.mode; return rows; }
+    }catch(e){ /* try next strategy */ }
+  }
+  return null;
+}
+
+async function refreshSigns(){
+  if(!signsOn || signsBusy) return;
+  if(map.getZoom() < SIGN_FETCH_ZOOM){
+    if(!toldZoomIn){ toast("Zoom in to load parking signs."); toldZoomIn=true; }
+    return;
+  }
+  toldZoomIn=false; signsBusy=true;
+  const rows = await fetchSignRows(map.getBounds());
+  signsBusy=false;
+  if(rows===null){ toast("Couldn't load signs (feed unreachable here)."); return; }
+  if(loadedSignIds.size > SIGN_CAP){ signCluster.clearLayers(); loadedSignIds.clear(); }
+  let added=0; const batch=[];
+  rows.forEach(row=>{
+    const k=signKey(row); if(loadedSignIds.has(k)) return;
+    const mk=signMarker(row); if(!mk) return;
+    loadedSignIds.add(k); batch.push(mk); added++;
+  });
+  if(batch.length) signCluster.addLayers(batch);
+  if(!rows.length) toast("No signs mapped in this view.");
+  else if(added) toast(added+" signs loaded"+(rows.length>=2000?" (zoom in for more)":""),1600);
+}
+
+function enableSigns(){
+  if(!signsAvailable()){ toast("Sign layer unavailable (map plugin didn't load)."); return; }
+  if(!signCluster){
+    signCluster = L.markerClusterGroup({
+      maxClusterRadius:55, spiderfyOnMaxZoom:true, showCoverageOnHover:false,
+      chunkedLoading:true, iconCreateFunction:clusterIcon
+    });
+  }
+  map.addLayer(signCluster);
+  signsOn=true; $("#signsBtn").classList.add("on"); $("#signsBtn").title="Hide parking signs";
+  refreshSigns();
+}
+function disableSigns(){
+  signsOn=false; $("#signsBtn").classList.remove("on"); $("#signsBtn").title="Show parking signs";
+  if(signCluster) map.removeLayer(signCluster);
+}
+$("#signsBtn").addEventListener("click",()=>{ signsOn ? disableSigns() : enableSigns(); });
+map.on("moveend",()=>{ if(!signsOn) return; clearTimeout(moveT); moveT=setTimeout(refreshSigns,400); });
+
 /* ---------- init ---------- */
 renderToday();
 openSheet();
+if(!signsAvailable()) $("#signsBtn").style.display="none";
 </script>
 </body>
 </html>

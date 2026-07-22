@@ -10,6 +10,7 @@ An interactive map of NYC street cleaning (Alternate Side Parking) schedules and
 
 - **Interactive dark map** of all five boroughs (Leaflet + CartoDB dark tiles). Tap any street to select that point and open a detail panel for the nearby block.
 - **"Find me" geolocation** — opt-in only. Nothing runs until you tap 📍. Shows your position + accuracy circle, recenters, and auto-loads the nearby schedule. Permission denial is handled with a friendly message, not a crash.
+- **Parking-sign layer** (toggle the sign button, bottom-right) — plots real NYC parking signs at their true curbside locations. Street-cleaning (ASP) signs are highlighted with a broom symbol; all other regulation signs show as blue markers. Tap any sign for its full regulation text and side of street. Signs load for whatever area you're viewing (zoom in to see them) and collapse into numbered clusters when you zoom out; tap a cluster to zoom into that block.
 - **Draggable bottom sheet** — drag the handle up/down to expand or collapse the detail panel; it snaps to the nearest position. Tap it to toggle.
 - **Today banner** — computes whether ASP today is suspended (planned holiday), a normal cleaning day, or Sunday (no ASP), plus a countdown to the next planned suspension.
 - **2026 suspension calendar** (📅) — searchable modal listing every planned citywide ASP suspension. Past dates are dimmed; today is badged.
@@ -24,9 +25,12 @@ An interactive map of NYC street cleaning (Alternate Side Parking) schedules and
 | Data | Source |
 |------|--------|
 | Per-block cleaning schedule | [NYC Open Data (DSNY) — Socrata API](https://data.cityofnewyork.us/) |
+| Parking signs (all regulations) | [NYC DOT — Parking Regulation Locations and Signs (`nfid-uabd`)](https://data.cityofnewyork.us/Transportation/Parking-Regulation-Locations-and-Signs/nfid-uabd) |
 | 2026 planned suspension calendar | NYC Department of Sanitation (DSNY) |
 | Base map tiles | CartoDB (dark) + OpenStreetMap |
-| Map rendering | [Leaflet](https://leafletjs.com/) (via CDN — the only external dependency) |
+| Map rendering | [Leaflet](https://leafletjs.com/) + [Leaflet.markercluster](https://github.com/Leaflet/Leaflet.markercluster) (both via CDN — the only external dependencies) |
+
+> **Note on sign positions:** NYC publishes sign locations in NY State Plane coordinates (EPSG:2263, feet), not latitude/longitude. StreetSweep converts them to map coordinates in-browser (a self-contained Lambert Conformal Conic transform — no library), so signs land on the correct side of the street. Like the per-block schedule, this layer needs HTTPS hosting to reach the live feed.
 
 ---
 
