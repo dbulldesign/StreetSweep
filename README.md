@@ -30,7 +30,9 @@ An interactive map of NYC street cleaning (Alternate Side Parking) schedules and
 | Base map tiles | CartoDB (dark) + OpenStreetMap |
 | Map rendering | [Leaflet](https://leafletjs.com/) + [Leaflet.markercluster](https://github.com/Leaflet/Leaflet.markercluster) (both via CDN — the only external dependencies) |
 
-> **Note on sign positions:** NYC publishes sign locations in NY State Plane coordinates (EPSG:2263, feet), not latitude/longitude. StreetSweep converts them to map coordinates in-browser (a self-contained Lambert Conformal Conic transform — no library), so signs land on the correct side of the street. Like the per-block schedule, this layer needs HTTPS hosting to reach the live feed.
+> **Note on sign positions:** NYC publishes sign locations in NY State Plane coordinates (EPSG:2263, feet), not latitude/longitude. StreetSweep converts them to map coordinates in-browser (a self-contained Lambert Conformal Conic transform — no library), so signs land on the correct side of the street. Only *current* signs are shown (the dataset also carries historical/removed ones). Like the per-block schedule, this layer needs HTTPS hosting to reach the live feed.
+>
+> **Optional:** the map queries NYC Open Data on each pan. To lift the anonymous 1,000-requests/hour throttle, register a free [Socrata app token](https://data.cityofnewyork.us/profile/app_tokens) and paste it into the `SOCRATA_APP_TOKEN` constant near the top of the sign-layer script. It's read-only and safe to ship in the page.
 
 ---
 

@@ -576,6 +576,9 @@ const PROJ = (function(){
 })();
 
 const SIGNS_URL = "https://data.cityofnewyork.us/resource/nfid-uabd.json";
+// Optional NYC Open Data app token — raises the anonymous 1000-req/hour
+// throttle. Read-only, safe to ship client-side. Leave "" to go tokenless.
+const SOCRATA_APP_TOKEN = "";
 const SIGN_FETCH_ZOOM = 15;      // don't fetch when zoomed out past this
 const SIGN_CAP = 6000;           // memory guard on total loaded markers
 const ASP_RE = /BROOM|SANITATION|STREET CLEAN/i;
@@ -636,22 +639,25 @@ function signMarker(row){
 }
 
 async function fetchSignRows(b){
-  // Try a geospatial query first; if the dataset has no geo column, fall
-  // back to a State-Plane bounding-box query (corners forward-projected).
+  // Positions are NY State Plane feet in TEXT columns, so we forward-project
+  // the viewport corners and range-filter on numeric casts. Only "Current"
+  // signs (the dataset also carries historical/removed ones).
   const N=b.getNorth(),S=b.getSouth(),E=b.getEast(),W=b.getWest();
+  const c=[PROJ.forward(N,W),PROJ.forward(N,E),PROJ.forward(S,W),PROJ.forward(S,E)];
+  const xs=c.map(p=>p[0]), ys=c.map(p=>p[1]);
+  const x1=Math.floor(Math.min(...xs)), x2=Math.ceil(Math.max(...xs));
+  const y1=Math.floor(Math.min(...ys)), y2=Math.ceil(Math.max(...ys));
+  const sel="&$select=order_number,on_street,side_of_street,sign_description,sign_code,sign_x_coord,sign_y_coord&$limit=2000";
   const tries=[];
-  if(signQueryMode!=="xy")
-    tries.push({mode:"geom", q:`$where=within_box(the_geom,${N},${W},${S},${E})&$limit=2000`});
-  if(signQueryMode!=="geom"){
-    const c=[PROJ.forward(N,W),PROJ.forward(N,E),PROJ.forward(S,W),PROJ.forward(S,E)];
-    const xs=c.map(p=>p[0]), ys=c.map(p=>p[1]);
-    const x1=Math.min(...xs)|0, x2=Math.ceil(Math.max(...xs)), y1=Math.min(...ys)|0, y2=Math.ceil(Math.max(...ys));
-    tries.push({mode:"xy", q:`$where=sign_x_coord between ${x1} and ${x2} AND sign_y_coord between ${y1} and ${y2}&$limit=2000`});
-  }
+  if(signQueryMode!=="plain")
+    tries.push({mode:"cast", w:`record_type='Current' AND sign_x_coord::number between ${x1} and ${x2} AND sign_y_coord::number between ${y1} and ${y2}`});
+  if(signQueryMode!=="cast")
+    tries.push({mode:"plain", w:`record_type='Current' AND sign_x_coord between ${x1} and ${x2} AND sign_y_coord between ${y1} and ${y2}`});
+  const headers = SOCRATA_APP_TOKEN ? {"X-App-Token":SOCRATA_APP_TOKEN} : {};
   for(const tr of tries){
     try{
       const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),8000);
-      const r=await fetch(SIGNS_URL+"?"+tr.q,{signal:ctrl.signal}); clearTimeout(to);
+      const r=await fetch(SIGNS_URL+"?$where="+encodeURIComponent(tr.w)+sel,{signal:ctrl.signal,headers}); clearTimeout(to);
       if(!r.ok) continue;
       const rows=await r.json();
       if(Array.isArray(rows)){ signQueryMode=tr.mode; return rows; }
