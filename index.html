@@ -90,6 +90,10 @@
   .cal-item{display:flex; gap:10px; padding:10px 4px; border-bottom:1px solid var(--line); font-size:13.5px; align-items:center;}
   .cal-item.past{opacity:.45;}
   .cal-item .date{flex:0 0 82px; color:var(--accent); font-weight:700;}
+  .compass{position:absolute; top:82px; right:14px; z-index:500; width:46px; height:46px;
+    background:var(--panel); border:1px solid var(--line); border-radius:50%;
+    box-shadow:0 2px 8px rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center;}
+  .compass svg{width:34px; height:34px;}
   .legend{position:absolute; left:12px; bottom:14px; z-index:500; background:var(--panel);
     border:1px solid var(--line); border-radius:10px; padding:8px 10px; font-size:11px; color:var(--muted);}
   .legend .li{display:flex;align-items:center;gap:6px;margin:2px 0;}
@@ -149,6 +153,18 @@
   <button class="fab" id="searchBtn" title="2026 suspension calendar" aria-label="Open suspension calendar">📅</button>
   <button class="fab" id="locBtn" title="Find me" aria-label="Find my location">📍</button>
 
+  <div class="compass" id="compass" title="North is up" aria-hidden="true">
+    <svg viewBox="0 0 48 48">
+      <polygon points="24,7 18,25 30,25" fill="#ff5c5c"/>
+      <polygon points="24,41 18,25 30,25" fill="#6b7280"/>
+      <circle cx="24" cy="25" r="2" fill="#e8eaed"/>
+      <text x="24" y="7" text-anchor="middle" font-size="9" font-weight="700" fill="#ff5c5c">N</text>
+      <text x="24" y="48" text-anchor="middle" font-size="8" fill="#9aa3b2">S</text>
+      <text x="45" y="28" text-anchor="middle" font-size="7" fill="#9aa3b2">E</text>
+      <text x="4" y="28" text-anchor="middle" font-size="7" fill="#9aa3b2">W</text>
+    </svg>
+  </div>
+
   <div class="legend" aria-hidden="true">
     <div class="li"><span class="swatch" style="background:#ffb020"></span> Street cleaning (ASP) sign</div>
     <div class="li"><span class="swatch" style="background:#4ea1ff"></span> Other parking sign / you</div>
@@ -194,7 +210,7 @@
    ============================================================ */
 
 /* ---------- App version (bump on each change) ---------- */
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.4.0";
 const APP_BUILT = "2026-07-22";
 
 /* ---------- 2026 ASP planned suspension calendar (DSNY) ---------- */
