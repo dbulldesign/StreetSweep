@@ -15,6 +15,7 @@ An interactive map of NYC street cleaning (Alternate Side Parking) schedules and
 - **Today banner** — computes whether ASP today is suspended (planned holiday), a normal cleaning day, or Sunday (no ASP), plus a countdown to the next planned suspension.
 - **2026 suspension calendar** (📅) — searchable modal listing every planned citywide ASP suspension. Past dates are dimmed; today is badged.
 - **Per-block detail card** — Sun–Sat day chips highlighting cleaning days, hours, side of street, a today-status badge, and the standard NYC parking rules.
+- **Nearby parking-meter rates** — when a meter blockface is close to the tapped point, the panel adds a card with the rate, hours in effect, and ParkNYC zone number. Omitted gracefully when there's no meter nearby.
 - **Live-cancellation links** — direct links to NYC311 and Notify NYC for same-day weather/emergency suspensions (see limitations below).
 - **Single file, no build step, no dependencies to install.** Just one `index.html`.
 
@@ -26,6 +27,7 @@ An interactive map of NYC street cleaning (Alternate Side Parking) schedules and
 |------|--------|
 | Per-block cleaning schedule | [NYC Open Data (DSNY) — Socrata API](https://data.cityofnewyork.us/) |
 | Parking signs (all regulations) | [NYC DOT — Parking Regulation Locations and Signs (`nfid-uabd`)](https://data.cityofnewyork.us/Transportation/Parking-Regulation-Locations-and-Signs/nfid-uabd) |
+| Parking-meter rates | NYC DOT — Parking Meter rates / ParkNYC blockfaces (`e7yp-wx55`) |
 | 2026 planned suspension calendar | NYC Department of Sanitation (DSNY) |
 | Base map tiles | CartoDB (dark) + OpenStreetMap |
 | Map rendering | [Leaflet](https://leafletjs.com/) + [Leaflet.markercluster](https://github.com/Leaflet/Leaflet.markercluster) (both via CDN — the only external dependencies) |

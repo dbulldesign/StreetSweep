@@ -417,6 +417,9 @@ function renderBlock(lat,lng,seg,err,loading){
     </div>`;
   }
 
+  // Parking-meter rates card (filled asynchronously by loadMeters)
+  html += `<div id="meterSlot"></div>`;
+
   // General parking rules reference
   html += `<div class="card"><h3>Standard NYC parking rules</h3>
     <div class="row"><span class="k">Cleaning</span><span class="v">Move car during posted window</span></div>
@@ -432,6 +435,42 @@ function renderBlock(lat,lng,seg,err,loading){
   $("#sheetSub").textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   $("#sheetBody").innerHTML = html;
   openSheet();
+  if(!loading) loadMeters(lat,lng);
+}
+
+/* ---------- Parking-meter rates (NYC DOT, e7yp-wx55) ----------
+   Filled into #meterSlot after the block renders. Field names are
+   probed defensively (the dataset schema isn't verified here) and the
+   card is simply omitted if no meter is nearby or the feed is
+   unreachable — it never blocks the rest of the panel. */
+const METERS_URL = "https://data.cityofnewyork.us/resource/e7yp-wx55.json";
+async function loadMeters(lat,lng){
+  const slot = document.getElementById("meterSlot");
+  if(!slot) return;
+  let rows=null;
+  try{
+    const headers = (typeof SOCRATA_APP_TOKEN!=="undefined" && SOCRATA_APP_TOKEN) ? {"X-App-Token":SOCRATA_APP_TOKEN} : {};
+    const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),7000);
+    const url=METERS_URL+"?$where="+encodeURIComponent(`within_circle(the_geom,${lat},${lng},160)`)+"&$limit=6";
+    const r=await fetch(url,{signal:ctrl.signal,headers}); clearTimeout(to);
+    if(r.ok){ const j=await r.json(); if(Array.isArray(j)&&j.length) rows=j; }
+  }catch(e){ /* graceful: leave the meter card out */ }
+  if(!rows || !slot.isConnected) return;
+  const row=rows[0];
+  const rate  = row.parking_rate||row.rate||row.meter_rate||row.hourly_rate||row.rate_per_hour||row.meter_rates||"";
+  const hours = row.meter_hours||row.hours_of_operation||row.hours||row.days_hours||row.regulation||row.status_description||"";
+  const zone  = row.pay_by_cell_number||row.parknyc_zone||row.paybycell||row.zone||row.locator||row.meter_number||"";
+  const on    = row.on_street||row.street||row.main_street||"";
+  const side  = row.side_of_street||row.side||"";
+  if(!(rate||hours||zone||on)) return; // nothing meaningful returned
+  let inner=`<div class="card"><h3>🅿️ Parking meters (nearby)</h3>`;
+  if(on)    inner+=`<div class="row"><span class="k">Street</span><span class="v">${esc(on)}</span></div>`;
+  if(side)  inner+=`<div class="row"><span class="k">Side</span><span class="v">${esc(side)}</span></div>`;
+  if(rate)  inner+=`<div class="row"><span class="k">Rate</span><span class="v">${esc(String(rate))}</span></div>`;
+  if(hours) inner+=`<div class="row"><span class="k">Hours</span><span class="v">${esc(String(hours))}</span></div>`;
+  if(zone)  inner+=`<div class="row"><span class="k">ParkNYC #</span><span class="v">${esc(String(zone))}</span></div>`;
+  inner+=`<div class="muted" style="margin-top:6px">Meters are free on Sundays. Pay at the meter or via the ParkNYC app.</div></div>`;
+  slot.innerHTML=inner;
 }
 
 /* ---------- Draggable bottom sheet ---------- */
