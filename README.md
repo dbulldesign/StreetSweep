@@ -71,6 +71,19 @@ No tracking, no analytics, no external fonts. Your location never leaves your de
 
 ---
 
+## Version
+
+The current version shows as a badge next to the "StreetSweep" title in the header, in the "Today" panel footer, and in the browser console on load. Bump `APP_VERSION` / `APP_BUILT` near the top of the script in `index.html` on each change.
+
+| Version | Notes |
+|---|---|
+| 1.3.0 | Version badges; finalized meter-rates card against real schema |
+| 1.2.0 | Nearby parking-meter rates card (e7yp-wx55) |
+| 1.1.0 | Parking-sign layer: all signs, ASP highlighted, clustered (nfid-uabd) |
+| 1.0.0 | Map, geolocation, draggable sheet, today banner, calendar, per-block rules |
+
+---
+
 ## License
 
 MIT — free to use, modify, and share.
