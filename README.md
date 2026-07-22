@@ -77,6 +77,7 @@ The current version shows as a badge next to the "StreetSweep" title in the head
 
 | Version | Notes |
 |---|---|
+| 1.5.0 | Fix bottom-sheet clipping on mobile/PWA (scroll + safe-area); compass docked as a map control |
 | 1.4.0 | Compass indicator (north-up orientation) |
 | 1.3.0 | Version badges; finalized meter-rates card against real schema |
 | 1.2.0 | Nearby parking-meter rates card (e7yp-wx55) |

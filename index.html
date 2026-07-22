@@ -44,10 +44,9 @@
   #sheet{position:absolute; left:0; right:0; bottom:0; z-index:600;
     background:var(--panel); border-top:1px solid var(--line);
     border-radius:18px 18px 0 0; box-shadow:0 -6px 24px rgba(0,0,0,.4);
-    max-height:70dvh; display:flex; flex-direction:column;
+    max-height:82dvh; display:flex; flex-direction:column;
     transform:translateY(calc(100% - 132px));
-    transition:transform .28s cubic-bezier(.4,0,.2,1);
-    padding-bottom:env(safe-area-inset-bottom);}
+    transition:transform .28s cubic-bezier(.4,0,.2,1);}
   #sheet.open{transform:translateY(0);}
   #sheet.dragging{transition:none;}
   .grip{width:40px;height:5px;background:var(--line);border-radius:3px;margin:9px auto 4px;flex:0 0 auto;}
@@ -55,7 +54,8 @@
   .sheet-head:active{cursor:grabbing;}
   .sheet-head h2{margin:2px 0; font-size:16px;}
   .sheet-head .sub{font-size:12px;color:var(--muted);}
-  .sheet-body{padding:0 16px 18px; overflow-y:auto; -webkit-overflow-scrolling:touch;}
+  .sheet-body{padding:0 16px calc(env(safe-area-inset-bottom) + 28px); flex:1 1 auto; min-height:0;
+    overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain;}
   .card{background:var(--panel2); border:1px solid var(--line); border-radius:var(--radius);
     padding:13px 14px; margin-bottom:10px;}
   .card h3{margin:0 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted);}
@@ -90,9 +90,9 @@
   .cal-item{display:flex; gap:10px; padding:10px 4px; border-bottom:1px solid var(--line); font-size:13.5px; align-items:center;}
   .cal-item.past{opacity:.45;}
   .cal-item .date{flex:0 0 82px; color:var(--accent); font-weight:700;}
-  .compass{position:absolute; top:82px; right:14px; z-index:500; width:46px; height:46px;
-    background:var(--panel); border:1px solid var(--line); border-radius:50%;
-    box-shadow:0 2px 8px rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center;}
+  .compass{width:46px; height:46px; background:var(--panel); border:1px solid var(--line);
+    border-radius:50%; box-shadow:0 2px 8px rgba(0,0,0,.45);
+    display:flex; align-items:center; justify-content:center;}
   .compass svg{width:34px; height:34px;}
   .legend{position:absolute; left:12px; bottom:14px; z-index:500; background:var(--panel);
     border:1px solid var(--line); border-radius:10px; padding:8px 10px; font-size:11px; color:var(--muted);}
@@ -153,18 +153,6 @@
   <button class="fab" id="searchBtn" title="2026 suspension calendar" aria-label="Open suspension calendar">📅</button>
   <button class="fab" id="locBtn" title="Find me" aria-label="Find my location">📍</button>
 
-  <div class="compass" id="compass" title="North is up" aria-hidden="true">
-    <svg viewBox="0 0 48 48">
-      <polygon points="24,7 18,25 30,25" fill="#ff5c5c"/>
-      <polygon points="24,41 18,25 30,25" fill="#6b7280"/>
-      <circle cx="24" cy="25" r="2" fill="#e8eaed"/>
-      <text x="24" y="7" text-anchor="middle" font-size="9" font-weight="700" fill="#ff5c5c">N</text>
-      <text x="24" y="48" text-anchor="middle" font-size="8" fill="#9aa3b2">S</text>
-      <text x="45" y="28" text-anchor="middle" font-size="7" fill="#9aa3b2">E</text>
-      <text x="4" y="28" text-anchor="middle" font-size="7" fill="#9aa3b2">W</text>
-    </svg>
-  </div>
-
   <div class="legend" aria-hidden="true">
     <div class="li"><span class="swatch" style="background:#ffb020"></span> Street cleaning (ASP) sign</div>
     <div class="li"><span class="swatch" style="background:#4ea1ff"></span> Other parking sign / you</div>
@@ -210,7 +198,7 @@
    ============================================================ */
 
 /* ---------- App version (bump on each change) ---------- */
-const APP_VERSION = "1.4.0";
+const APP_VERSION = "1.5.0";
 const APP_BUILT = "2026-07-22";
 
 /* ---------- 2026 ASP planned suspension calendar (DSNY) ---------- */
@@ -274,6 +262,24 @@ function suspensionFor(dateStr){
 const NYC = [40.7308,-73.9975];
 const map = L.map("map",{zoomControl:false, attributionControl:false}).setView(NYC,13);
 L.control.zoom({position:"topright"}).addTo(map);
+// North-up compass — a Leaflet control so it auto-stacks under the zoom
+// buttons instead of overlapping them. Map never rotates, so it's static.
+const CompassCtl = L.Control.extend({ onAdd(){
+  const d = L.DomUtil.create("div","compass");
+  d.title = "North is up";
+  d.innerHTML = `<svg viewBox="0 0 48 48" aria-hidden="true">
+    <polygon points="24,7 18,25 30,25" fill="#ff5c5c"/>
+    <polygon points="24,41 18,25 30,25" fill="#6b7280"/>
+    <circle cx="24" cy="25" r="2" fill="#e8eaed"/>
+    <text x="24" y="8" text-anchor="middle" font-size="9" font-weight="700" fill="#ff5c5c">N</text>
+    <text x="24" y="47" text-anchor="middle" font-size="8" fill="#9aa3b2">S</text>
+    <text x="44" y="28" text-anchor="middle" font-size="7" fill="#9aa3b2">E</text>
+    <text x="5" y="28" text-anchor="middle" font-size="7" fill="#9aa3b2">W</text>
+  </svg>`;
+  L.DomEvent.disableClickPropagation(d);
+  return d;
+} });
+new CompassCtl({position:"topright"}).addTo(map);
 L.control.attribution({position:"topleft",prefix:false})
   .addAttribution('© OpenStreetMap · © CARTO · DSNY/NYC Open Data').addTo(map);
 L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{
