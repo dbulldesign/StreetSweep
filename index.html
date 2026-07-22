@@ -444,32 +444,65 @@ function renderBlock(lat,lng,seg,err,loading){
    card is simply omitted if no meter is nearby or the feed is
    unreachable — it never blocks the rest of the panel. */
 const METERS_URL = "https://data.cityofnewyork.us/resource/e7yp-wx55.json";
+const meterNA = v => (!v || /^\s*n\/?a\s*$/i.test(v)) ? "" : String(v).trim();
+
+// The dataset carries two parallel rate groups: "all vehicles" and
+// "commercial". Prefer whichever applies to a normal passenger car.
+function meterGroup(r){
+  const all={label:"All vehicles", max:meterNA(r.all_vehicl), when:meterNA(r.all_vehi_1), rate:meterNA(r.all_vehi_2), daily:meterNA(r.all_vehi_3)};
+  const com={label:"Commercial only", max:meterNA(r.commercial), when:meterNA(r.commerci_1), rate:meterNA(r.commerci_2), daily:meterNA(r.commerci_3)};
+  if(all.rate||all.when||all.max) return all;
+  if(com.rate||com.when||com.max) return com;
+  return all;
+}
+
+// Nearest blockface to the tap: min squared distance over the line's vertices.
+function meterDist(row,lat,lng){
+  const g=row.the_geom; if(!g||!g.coordinates) return Infinity;
+  let best=Infinity;
+  const scan=arr=>{ if(typeof arr[0]==="number"){const dx=arr[0]-lng,dy=arr[1]-lat;best=Math.min(best,dx*dx+dy*dy);} else arr.forEach(scan); };
+  scan(g.coordinates); return best;
+}
+
 async function loadMeters(lat,lng){
   const slot = document.getElementById("meterSlot");
   if(!slot) return;
+  const headers = (typeof SOCRATA_APP_TOKEN!=="undefined" && SOCRATA_APP_TOKEN) ? {"X-App-Token":SOCRATA_APP_TOKEN} : {};
+  const dLat=0.0022, dLng=0.0028; // ~230m box for the fallback query
+  const wheres=[
+    `within_circle(the_geom,${lat},${lng},220)`,
+    `within_box(the_geom,${lat+dLat},${lng-dLng},${lat-dLat},${lng+dLng})`
+  ];
   let rows=null;
-  try{
-    const headers = (typeof SOCRATA_APP_TOKEN!=="undefined" && SOCRATA_APP_TOKEN) ? {"X-App-Token":SOCRATA_APP_TOKEN} : {};
-    const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),7000);
-    const url=METERS_URL+"?$where="+encodeURIComponent(`within_circle(the_geom,${lat},${lng},160)`)+"&$limit=6";
-    const r=await fetch(url,{signal:ctrl.signal,headers}); clearTimeout(to);
-    if(r.ok){ const j=await r.json(); if(Array.isArray(j)&&j.length) rows=j; }
-  }catch(e){ /* graceful: leave the meter card out */ }
-  if(!rows || !slot.isConnected) return;
-  const row=rows[0];
-  const rate  = row.parking_rate||row.rate||row.meter_rate||row.hourly_rate||row.rate_per_hour||row.meter_rates||"";
-  const hours = row.meter_hours||row.hours_of_operation||row.hours||row.days_hours||row.regulation||row.status_description||"";
-  const zone  = row.pay_by_cell_number||row.parknyc_zone||row.paybycell||row.zone||row.locator||row.meter_number||"";
-  const on    = row.on_street||row.street||row.main_street||"";
-  const side  = row.side_of_street||row.side||"";
-  if(!(rate||hours||zone||on)) return; // nothing meaningful returned
+  for(const w of wheres){
+    try{
+      const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),7000);
+      const r=await fetch(METERS_URL+"?$where="+encodeURIComponent(w)+"&$limit=25",{signal:ctrl.signal,headers});
+      clearTimeout(to);
+      if(!r.ok) continue;
+      const j=await r.json();
+      if(Array.isArray(j)){ rows=j; break; }
+    }catch(e){ /* try next / give up */ }
+  }
+  if(!rows || !rows.length || !slot.isConnected) return; // no meter nearby or feed unreachable
+
+  const row = rows.slice().sort((a,b)=>meterDist(a,lat,lng)-meterDist(b,lat,lng))[0];
+  const g   = meterGroup(row);
+  const on  = meterNA(row.on_street), side=meterNA(row.side_of_st||row.side_of_street);
+  const blk = [meterNA(row.from_stree||row.from_street), meterNA(row.to_street)].filter(Boolean).join(" → ");
+  const zone= meterNA(row.meter_rate), pbc=meterNA(row.pay_by_cel||row.pay_by_cell_number);
+  if(!(on||g.rate||g.when||zone)) return;
+
   let inner=`<div class="card"><h3>🅿️ Parking meters (nearby)</h3>`;
-  if(on)    inner+=`<div class="row"><span class="k">Street</span><span class="v">${esc(on)}</span></div>`;
-  if(side)  inner+=`<div class="row"><span class="k">Side</span><span class="v">${esc(side)}</span></div>`;
-  if(rate)  inner+=`<div class="row"><span class="k">Rate</span><span class="v">${esc(String(rate))}</span></div>`;
-  if(hours) inner+=`<div class="row"><span class="k">Hours</span><span class="v">${esc(String(hours))}</span></div>`;
-  if(zone)  inner+=`<div class="row"><span class="k">ParkNYC #</span><span class="v">${esc(String(zone))}</span></div>`;
-  inner+=`<div class="muted" style="margin-top:6px">Meters are free on Sundays. Pay at the meter or via the ParkNYC app.</div></div>`;
+  if(on)     inner+=`<div class="row"><span class="k">Street</span><span class="v">${esc(on)}${side?" · "+esc(side)+" side":""}</span></div>`;
+  if(blk)    inner+=`<div class="row"><span class="k">Block</span><span class="v">${esc(blk)}</span></div>`;
+  if(g.when) inner+=`<div class="row"><span class="k">Hours</span><span class="v">${esc(g.when)}</span></div>`;
+  if(g.rate) inner+=`<div class="row"><span class="k">Rate</span><span class="v">${esc(g.rate)}</span></div>`;
+  if(g.max)  inner+=`<div class="row"><span class="k">Max stay</span><span class="v">${esc(g.max)}${g.daily?" · "+esc(g.daily)+" max":""}</span></div>`;
+  if(zone)   inner+=`<div class="row"><span class="k">Rate zone</span><span class="v">${esc(zone)}</span></div>`;
+  if(pbc)    inner+=`<div class="row"><span class="k">ParkNYC #</span><span class="v">${esc(pbc)}</span></div>`;
+  inner+=`<div style="margin-top:8px"><span class="badge ${g.label==='Commercial only'?'b-bad':'b-good'}">${esc(g.label)}</span></div>`;
+  inner+=`<div class="muted" style="margin-top:6px">Meters are free on Sundays. Pay at the meter or via the ParkNYC app${pbc?` (zone #${esc(pbc)})`:""}.</div></div>`;
   slot.innerHTML=inner;
 }
 
