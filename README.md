@@ -99,6 +99,7 @@ The current version shows as a badge next to the "StreetSweep" title in the head
 
 | Version | Notes |
 |---|---|
+| 1.10.0 | Block panel lists all signs on the block (grouped by side); fix sign dedup that dropped signs sharing a work order; sign taps show a highlighted "selected sign" card |
 | 1.9.0 | Panel hidden by default + smaller floating card; signs shown by default; sign tap opens block panel; removed Location card; added Action to auto-refresh the calendar from NYC |
 | 1.8.0 | Suspension calendar auto-syncs from `suspensions.json` on open, caches last sync, falls back to built-in |
 | 1.7.1 | Show signs at a wider zoom (threshold 13) and load more per view |
