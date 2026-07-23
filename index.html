@@ -43,11 +43,12 @@
   #locBtn{right:14px; bottom:160px;}
   #searchBtn{right:14px; bottom:222px; background:var(--accent2); color:#fff; font-size:20px;}
   /* bottom sheet */
-  #sheet{position:absolute; left:0; right:0; bottom:0; z-index:600;
-    background:var(--panel); border-top:1px solid var(--line);
-    border-radius:18px 18px 0 0; box-shadow:0 -6px 24px rgba(0,0,0,.4);
-    max-height:82dvh; display:flex; flex-direction:column;
-    transform:translateY(105%);
+  #sheet{position:absolute; left:12px; right:12px; margin:0 auto; max-width:360px;
+    bottom:calc(12px + env(safe-area-inset-bottom)); z-index:600;
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:18px; box-shadow:0 8px 28px rgba(0,0,0,.55);
+    max-height:42dvh; display:flex; flex-direction:column;
+    transform:translateY(calc(100% + 28px));
     transition:transform .28s cubic-bezier(.4,0,.2,1);}
   #sheet.open{transform:translateY(0);}
   .sheet-close{position:absolute; top:10px; right:12px; z-index:2; width:32px; height:32px;
@@ -67,7 +68,7 @@
   .sheet-head{padding:2px 46px 10px 16px;}
   .sheet-head h2{margin:2px 0; font-size:16px;}
   .sheet-head .sub{font-size:12px;color:var(--muted);}
-  .sheet-body{padding:0 16px calc(env(safe-area-inset-bottom) + 28px); flex:1 1 auto; min-height:0;
+  .sheet-body{padding:0 15px 16px; flex:1 1 auto; min-height:0;
     overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain;}
   .card{background:var(--panel2); border:1px solid var(--line); border-radius:var(--radius);
     padding:13px 14px; margin-bottom:10px;}
@@ -217,7 +218,7 @@
    ============================================================ */
 
 /* ---------- App version (bump on each change) ---------- */
-const APP_VERSION = "1.8.0";
+const APP_VERSION = "1.9.0";
 const APP_BUILT = "2026-07-22";
 
 /* ---------- ASP planned suspension calendar ----------
@@ -413,7 +414,7 @@ function normalizeSuspensions(raw){
 function applySuspensions(list, source, at){
   SUSPENSIONS = list; syncInfo = { source, at:at||null };
   updateStatusPill();
-  if($("#sheetTitle").textContent==="Today in NYC" && sheetOpen) renderToday();
+  if($("#sheetTitle").textContent==="Today in NYC") renderToday();
   if($("#calModal").classList.contains("show")) renderCal($("#calSearch").value);
 }
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -502,10 +503,6 @@ function renderBlock(lat,lng,seg,err,loading){
   let html="";
   const susp = suspensionFor(iso(now));
 
-  html += `<div class="card"><h3>Location</h3>
-    <div class="row"><span class="k">Coords</span><span class="v">${lat.toFixed(5)}, ${lng.toFixed(5)}</span></div>
-    <a class="btn" target="_blank" rel="noopener" href="https://maps.google.com/?q=${lat},${lng}">Open in Google Maps →</a>
-  </div>`;
 
   if(loading){
     html += `<div class="card"><h3>Cleaning schedule</h3>
@@ -829,17 +826,9 @@ function signMarker(row){
     className:"", iconSize:[22,28], iconAnchor:[11,28], popupAnchor:[0,-26],
     html:`<div class="signpin ${isAsp?'asp':'other'}"><div class="face">${face}</div><div class="post"></div></div>`
   });
-  const on = row.on_street || row.main_st || row.order_number || "";
-  const sos = row.sos || row.side_of_street || "";
   const m = L.marker(ll,{icon});
-  m.bindPopup(
-    `<div class="sign-pop">`+
-    (on?`<b>${esc(on)}</b><br>`:``)+
-    (sos?`<span class="muted">Side: ${esc(sos)}</span>`:``)+
-    `<div class="desc">${esc(desc||"See posted sign")}</div>`+
-    (isAsp?`<div style="margin-top:5px"><span class="badge b-clean">Street cleaning</span></div>`:``)+
-    `</div>`
-  );
+  // Tapping a sign shows the same block detail panel as tapping the map there.
+  m.on("click",()=>loadNearby(ll[0],ll[1]));
   return m;
 }
 
@@ -924,8 +913,9 @@ map.on("moveend",()=>{ if(!signsOn) return; clearTimeout(moveT); moveT=setTimeou
 $("#verTag").textContent = "v"+APP_VERSION;
 console.log(`StreetSweep v${APP_VERSION} (built ${APP_BUILT})`);
 renderToday();
-openSheet();
+closeSheet();                                   // panel hidden by default; ℹ️ button opens it
 if(!signsAvailable()) $("#signsBtn").style.display="none";
+else enableSigns();                             // show all street signs by default
 initSuspensions();
 </script>
 </body>
