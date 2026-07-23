@@ -77,6 +77,7 @@ The current version shows as a badge next to the "StreetSweep" title in the head
 
 | Version | Notes |
 |---|---|
+| 1.7.1 | Show signs at a wider zoom (threshold 13) and load more per view |
 | 1.7.0 | Panel fully hides with a floating open button + close (✕); signs auto-zoom on enable and report load errors |
 | 1.6.1 | Fix sheet drag: lock page scroll (no rubber-band) and make the whole grip+header draggable |
 | 1.6.0 | Remove on-screen zoom buttons (pinch to zoom); compass now alone in top-right |
