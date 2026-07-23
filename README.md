@@ -42,13 +42,21 @@ An interactive map of NYC street cleaning (Alternate Side Parking) schedules and
 
 The Alternate Side Parking suspension calendar lives in **`suspensions.json`** (same repo). The app fetches it every time it opens, caches the last successful sync in the browser, and falls back gracefully: **live fetch → last sync → the built-in list baked into `index.html`**. The calendar modal shows the sync status ("Calendar updated …" / "Offline — using saved calendar").
 
-To change the calendar (e.g. for a new year), edit `suspensions.json` — no `index.html` change needed. Format:
+To change the calendar manually (e.g. for a new year), edit `suspensions.json` — no `index.html` change needed. Format:
 
 ```json
 { "year": 2026, "updated": "2026-07-22", "suspensions": [ ["2026-01-01", "New Year's Day"], … ] }
 ```
 
-> There is no keyless, browser-accessible official NYC calendar API (the official one requires a subscription key and isn't CORS-enabled for static pages). Hosting the calendar as JSON here is the reliable pattern; it can later be auto-refreshed from NYC by a scheduled GitHub Action that rewrites `suspensions.json`.
+### Auto-refresh from NYC (GitHub Action)
+
+`.github/workflows/update-suspensions.yml` runs weekly (and on demand) and regenerates `suspensions.json` from NYC's official calendar API via `scripts/update-suspensions.mjs`. The Action runs on GitHub's servers, which *can* reach `api.nyc.gov` (a static browser page can't). To enable it:
+
+1. Get a free API key at <https://api-portal.nyc.gov/> (subscribe to the calendar/"City Services" API).
+2. In the repo: **Settings → Secrets and variables → Actions → New repository secret**, name it **`NYC_API_KEY`**.
+3. That's it — the Action runs Mondays, or trigger it manually under **Actions → Update ASP suspensions → Run workflow**.
+
+Without the secret the Action is a harmless no-op. The script only overwrites `suspensions.json` when it parses a sane number of entries, so a bad or blocked response can never clobber a good calendar. Because it depends on the live API's response shape (which can't be tested from here), verify the first run's output.
 
 ---
 
@@ -91,6 +99,7 @@ The current version shows as a badge next to the "StreetSweep" title in the head
 
 | Version | Notes |
 |---|---|
+| 1.9.0 | Panel hidden by default + smaller floating card; signs shown by default; sign tap opens block panel; removed Location card; added Action to auto-refresh the calendar from NYC |
 | 1.8.0 | Suspension calendar auto-syncs from `suspensions.json` on open, caches last sync, falls back to built-in |
 | 1.7.1 | Show signs at a wider zoom (threshold 13) and load more per view |
 | 1.7.0 | Panel fully hides with a floating open button + close (✕); signs auto-zoom on enable and report load errors |

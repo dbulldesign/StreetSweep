@@ -1,0 +1,37 @@
+name: Update ASP suspensions
+
+# Refreshes suspensions.json from NYC's official calendar API on a schedule.
+# Requires a repo secret NYC_API_KEY (free: https://api-portal.nyc.gov/).
+# Without the secret the job is a no-op; the app keeps the committed file.
+
+on:
+  schedule:
+    - cron: "0 8 * * 1"   # Mondays 08:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Regenerate suspensions.json
+        env:
+          NYC_API_KEY: ${{ secrets.NYC_API_KEY }}
+        run: node scripts/update-suspensions.mjs
+      - name: Commit if changed
+        run: |
+          if [[ -n "$(git status --porcelain suspensions.json)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add suspensions.json
+            git commit -m "chore: refresh ASP suspensions.json"
+            git push
+          else
+            echo "suspensions.json unchanged."
+          fi
