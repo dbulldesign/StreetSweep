@@ -47,14 +47,24 @@
     background:var(--panel); border-top:1px solid var(--line);
     border-radius:18px 18px 0 0; box-shadow:0 -6px 24px rgba(0,0,0,.4);
     max-height:82dvh; display:flex; flex-direction:column;
-    transform:translateY(calc(100% - 132px));
+    transform:translateY(105%);
     transition:transform .28s cubic-bezier(.4,0,.2,1);}
   #sheet.open{transform:translateY(0);}
+  .sheet-close{position:absolute; top:10px; right:12px; z-index:2; width:32px; height:32px;
+    border-radius:50%; background:var(--panel2); border:1px solid var(--line); color:var(--muted);
+    font-size:16px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center;}
+  #openBtn{position:absolute; left:50%; transform:translateX(-50%);
+    bottom:calc(22px + env(safe-area-inset-bottom)); z-index:550;
+    background:var(--accent); color:#111; border:none; border-radius:24px; padding:12px 20px;
+    font-size:14px; font-weight:700; box-shadow:0 4px 16px rgba(0,0,0,.55);
+    display:flex; align-items:center; gap:7px; cursor:pointer; max-width:80vw;}
+  #openBtn .lbl{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  #openBtn.hide{display:none;}
   #sheet.dragging{transition:none;}
   .sheet-handle{flex:0 0 auto; cursor:grab; touch-action:none; user-select:none; padding-bottom:2px;}
   .sheet-handle:active{cursor:grabbing;}
   .grip{width:44px;height:5px;background:var(--line);border-radius:3px;margin:9px auto 4px;}
-  .sheet-head{padding:2px 16px 10px;}
+  .sheet-head{padding:2px 46px 10px 16px;}
   .sheet-head h2{margin:2px 0; font-size:16px;}
   .sheet-head .sub{font-size:12px;color:var(--muted);}
   .sheet-body{padding:0 16px calc(env(safe-area-inset-bottom) + 28px); flex:1 1 auto; min-height:0;
@@ -161,7 +171,10 @@
     <div class="li"><span class="swatch" style="background:#4ea1ff"></span> Other parking sign / you</div>
   </div>
 
+  <button id="openBtn" class="hide"><span>ℹ️</span><span class="lbl">Details</span></button>
+
   <div id="sheet">
+    <button class="sheet-close" id="sheetClose" aria-label="Close panel">✕</button>
     <div class="sheet-handle" id="sheetHandle">
       <div class="grip"></div>
       <div class="sheet-head" id="sheetHead">
@@ -203,7 +216,7 @@
    ============================================================ */
 
 /* ---------- App version (bump on each change) ---------- */
-const APP_VERSION = "1.6.1";
+const APP_VERSION = "1.7.0";
 const APP_BUILT = "2026-07-22";
 
 /* ---------- 2026 ASP planned suspension calendar (DSNY) ---------- */
@@ -542,12 +555,16 @@ async function loadMeters(lat,lng){
 
 /* ---------- Draggable bottom sheet ---------- */
 const sheet = $("#sheet");
-const PEEK = 132; // px of sheet visible when collapsed (matches CSS translateY)
+const PEEK = 0; // collapsed = fully hidden (button-controlled)
 let sheetOpen = false;
 
 function sheetHeight(){ return sheet.getBoundingClientRect().height; }
-function openSheet(){ sheet.classList.add("open"); sheet.style.transform=""; sheetOpen=true; }
-function closeSheet(){ sheet.classList.remove("open"); sheet.style.transform=""; sheetOpen=false; }
+function openSheet(){ sheet.classList.add("open"); sheet.style.transform=""; sheetOpen=true; $("#openBtn").classList.add("hide"); }
+function closeSheet(){
+  sheet.classList.remove("open"); sheet.style.transform=""; sheetOpen=false;
+  const ob=$("#openBtn"); ob.querySelector(".lbl").textContent = $("#sheetTitle").textContent || "Details";
+  ob.classList.remove("hide");
+}
 function toggleSheet(){ sheetOpen ? closeSheet() : openSheet(); }
 
 // Pointer-drag on the whole handle (grip + header). Follows the finger,
@@ -585,18 +602,20 @@ function toggleSheet(){ sheetOpen ? closeSheet() : openSheet(); }
     dragging=false;
     sheet.classList.remove("dragging");
     head.releasePointerCapture && head.releasePointerCapture(e.pointerId);
-    if(!moved){ toggleSheet(); return; } // treat as a tap
-    // Snap based on how far down it ended up.
+    if(!moved){ closeSheet(); return; } // tap on handle closes the open sheet
+    // Snap: dragged down more than ~30% of the sheet closes it.
     const h = sheetHeight();
     const maxOffset = Math.max(0, h - PEEK);
     const off = startOffset + (lastY - startY);
-    (off < maxOffset/2) ? openSheet() : closeSheet();
+    (off < maxOffset*0.32) ? openSheet() : closeSheet();
   }
   head.addEventListener("pointerdown",onDown);
   head.addEventListener("pointermove",onMove);
   head.addEventListener("pointerup",onUp);
   head.addEventListener("pointercancel",onUp);
 })();
+$("#sheetClose").addEventListener("click",closeSheet);
+$("#openBtn").addEventListener("click",openSheet);
 
 /* ---------- Geolocation (opt-in) ---------- */
 $("#locBtn").addEventListener("click",()=>{
@@ -686,12 +705,12 @@ const SIGNS_URL = "https://data.cityofnewyork.us/resource/nfid-uabd.json";
 // Optional NYC Open Data app token — raises the anonymous 1000-req/hour
 // throttle. Read-only, safe to ship client-side. Leave "" to go tokenless.
 const SOCRATA_APP_TOKEN = "";
-const SIGN_FETCH_ZOOM = 15;      // don't fetch when zoomed out past this
+const SIGN_FETCH_ZOOM = 14;      // don't fetch when zoomed out past this
 const SIGN_CAP = 6000;           // memory guard on total loaded markers
 const ASP_RE = /BROOM|SANITATION|STREET CLEAN/i;
 
 let signsOn = false, signQueryMode = null, signsBusy = false;
-let signCluster = null, loadedSignIds = new Set(), toldZoomIn = false, moveT = null;
+let signCluster = null, loadedSignIds = new Set(), toldZoomIn = false, moveT = null, lastSignDiag = "";
 
 function signsAvailable(){ return typeof L.markerClusterGroup === "function"; }
 
@@ -761,14 +780,17 @@ async function fetchSignRows(b){
   if(signQueryMode!=="cast")
     tries.push({mode:"plain", w:`record_type='Current' AND sign_x_coord between ${x1} and ${x2} AND sign_y_coord between ${y1} and ${y2}`});
   const headers = SOCRATA_APP_TOKEN ? {"X-App-Token":SOCRATA_APP_TOKEN} : {};
+  lastSignDiag = "";
   for(const tr of tries){
+    const url = SIGNS_URL+"?$where="+encodeURIComponent(tr.w)+sel;
     try{
       const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),8000);
-      const r=await fetch(SIGNS_URL+"?$where="+encodeURIComponent(tr.w)+sel,{signal:ctrl.signal,headers}); clearTimeout(to);
-      if(!r.ok) continue;
+      const r=await fetch(url,{signal:ctrl.signal,headers}); clearTimeout(to);
+      console.log(`[signs] ${tr.mode} → HTTP ${r.status}`, url);
+      if(!r.ok){ lastSignDiag = `HTTP ${r.status} (${tr.mode})`; continue; }
       const rows=await r.json();
-      if(Array.isArray(rows)){ signQueryMode=tr.mode; return rows; }
-    }catch(e){ /* try next strategy */ }
+      if(Array.isArray(rows)){ signQueryMode=tr.mode; console.log(`[signs] ${rows.length} rows`); return rows; }
+    }catch(e){ lastSignDiag = (e.name==="AbortError"?"timeout":"network"); console.warn("[signs] fetch failed",tr.mode,e.message); }
   }
   return null;
 }
@@ -782,7 +804,7 @@ async function refreshSigns(){
   toldZoomIn=false; signsBusy=true;
   const rows = await fetchSignRows(map.getBounds());
   signsBusy=false;
-  if(rows===null){ toast("Couldn't load signs (feed unreachable here)."); return; }
+  if(rows===null){ toast("Couldn't load signs"+(lastSignDiag?" — "+lastSignDiag:"")+"."); return; }
   if(loadedSignIds.size > SIGN_CAP){ signCluster.clearLayers(); loadedSignIds.clear(); }
   let added=0; const batch=[];
   rows.forEach(row=>{
@@ -805,7 +827,12 @@ function enableSigns(){
   }
   map.addLayer(signCluster);
   signsOn=true; $("#signsBtn").classList.add("on"); $("#signsBtn").title="Hide parking signs";
-  refreshSigns();
+  if(map.getZoom() < SIGN_FETCH_ZOOM){
+    toast("Zooming in to load nearby signs…",1500);
+    map.setZoom(SIGN_FETCH_ZOOM);   // triggers moveend → refreshSigns
+  } else {
+    refreshSigns();
+  }
 }
 function disableSigns(){
   signsOn=false; $("#signsBtn").classList.remove("on"); $("#signsBtn").title="Show parking signs";
