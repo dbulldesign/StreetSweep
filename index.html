@@ -139,6 +139,10 @@
     justify-content:center; font-size:12px; font-weight:700; color:#111;
     background:rgba(255,176,32,.92); border:2px solid #fff; box-shadow:0 2px 8px rgba(0,0,0,.5);}
   .cl-bubble.big{font-size:11px;}
+  .sign-hi{border-color:var(--accent2); box-shadow:0 0 0 1px var(--accent2) inset;}
+  .sideh{margin:9px 0 3px; font-size:12px; font-weight:700; color:var(--txt);}
+  .signline{font-size:12.5px; line-height:1.4; padding:5px 0; border-bottom:1px solid var(--line);}
+  .signline:last-child{border-bottom:none;}
   .sign-pop{font-size:13px; min-width:150px;}
   .sign-pop b{color:var(--accent);}
   .sign-pop .desc{margin-top:4px; color:#111; font-weight:600; line-height:1.35;}
@@ -218,7 +222,7 @@
    ============================================================ */
 
 /* ---------- App version (bump on each change) ---------- */
-const APP_VERSION = "1.9.0";
+const APP_VERSION = "1.10.0";
 const APP_BUILT = "2026-07-22";
 
 /* ---------- ASP planned suspension calendar ----------
@@ -461,12 +465,13 @@ function parseDays(str){
 /* ---------- Fetch nearby cleaning segments from NYC Open Data ---------- */
 // DSNY street cleaning schedule dataset. If unreachable / schema differs,
 // we fall back to a generic lookup card.
-async function loadNearby(lat,lng){
+async function loadNearby(lat,lng,clickedSign=null){
   segLayer.clearLayers();
-  pickMarker = L.circleMarker([lat,lng],{radius:7,color:"#ffb020",fillColor:"#ffb020",fillOpacity:.9,weight:2}).addTo(segLayer);
+  const col = clickedSign ? "#4ea1ff" : "#ffb020";
+  pickMarker = L.circleMarker([lat,lng],{radius:clickedSign?9:7,color:"#fff",fillColor:col,fillOpacity:.95,weight:clickedSign?3:2}).addTo(segLayer);
 
   // Show an immediate loading state so the tap feels responsive.
-  renderBlock(lat,lng,null,null,true);
+  renderBlock(lat,lng,null,null,true,clickedSign);
 
   let seg=null, err=null;
   try{
@@ -484,7 +489,7 @@ async function loadNearby(lat,lng){
     }
   }catch(e){ err=e; }
 
-  renderBlock(lat,lng,seg,err,false);
+  renderBlock(lat,lng,seg,err,false,clickedSign);
 }
 
 function scheduleCardFromRow(row){
@@ -497,12 +502,23 @@ function scheduleCardFromRow(row){
   return {days,from,to,side,on};
 }
 
-function renderBlock(lat,lng,seg,err,loading){
+function renderBlock(lat,lng,seg,err,loading,clickedSign){
   const now=new Date();
   const dow=now.getDay();
   let html="";
   const susp = suspensionFor(iso(now));
 
+  if(clickedSign){
+    const cs=clickedSign, isAsp=ASP_RE.test(cs.sign_description||"");
+    html += `<div class="card sign-hi"><h3>${isAsp?'🧹 ':'🪧 '}Selected sign</h3>
+      ${cs.on_street?`<div class="row"><span class="k">Street</span><span class="v">${esc(cs.on_street)}${cs.side_of_street?" · "+esc(cs.side_of_street)+" side":""}</span></div>`:""}
+      <div class="row"><span class="k">Sign</span><span class="v">${esc(cs.sign_description||cs.sign_code||"See posted sign")}</span></div>
+      ${isAsp?`<div style="margin-top:8px"><span class="badge b-clean">Street cleaning</span></div>`:""}
+    </div>`;
+  }
+
+  // All signs mapped on this block (filled asynchronously by loadBlockSigns)
+  html += `<div id="signSlot"></div>`;
 
   if(loading){
     html += `<div class="card"><h3>Cleaning schedule</h3>
@@ -552,11 +568,51 @@ function renderBlock(lat,lng,seg,err,loading){
 
   html += `<div class="muted" style="padding:2px 2px 8px">Always defer to the physical sign on the curb — it is the enforceable rule.</div>`;
 
-  $("#sheetTitle").textContent = "This block";
+  $("#sheetTitle").textContent = clickedSign ? "This sign" : "This block";
   $("#sheetSub").textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   $("#sheetBody").innerHTML = html;
   openSheet();
-  if(!loading) loadMeters(lat,lng);
+  if(!loading){ loadBlockSigns(lat,lng); loadMeters(lat,lng); }
+}
+
+/* ---------- All signs on the tapped block (NYC DOT, nfid-uabd) ----------
+   Fills #signSlot with every current sign within ~75 m of the tap, grouped
+   by side of street. This is the authoritative per-sign list. */
+async function loadBlockSigns(lat,lng){
+  const slot=document.getElementById("signSlot"); if(!slot) return;
+  slot.innerHTML = `<div class="card"><h3>Signs on this block</h3><div class="muted"><span class="spin"></span>Loading nearby signs…</div></div>`;
+  const [cx,cy]=PROJ.forward(lat,lng);
+  const dft=250; // ~75 m in feet
+  const x1=Math.floor(cx-dft),x2=Math.ceil(cx+dft),y1=Math.floor(cy-dft),y2=Math.ceil(cy+dft);
+  const headers = (typeof SOCRATA_APP_TOKEN!=="undefined" && SOCRATA_APP_TOKEN) ? {"X-App-Token":SOCRATA_APP_TOKEN} : {};
+  const sel="&$select=on_street,side_of_street,from_street,to_street,sign_description,sign_code,sign_notes,sign_x_coord,sign_y_coord&$limit=300";
+  const w=`record_type='Current' AND sign_x_coord::number between ${x1} and ${x2} AND sign_y_coord::number between ${y1} and ${y2}`;
+  let rows=null, diag="";
+  try{
+    const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),8000);
+    const r=await fetch(SIGNS_URL+"?$where="+encodeURIComponent(w)+sel,{signal:ctrl.signal,headers}); clearTimeout(to);
+    if(r.ok){ const j=await r.json(); if(Array.isArray(j)) rows=j; } else diag="HTTP "+r.status;
+  }catch(e){ diag=e.name==="AbortError"?"timeout":"network"; }
+  if(!slot.isConnected) return;
+  if(!rows){ slot.innerHTML=`<div class="card"><h3>Signs on this block</h3><div class="muted">Couldn't load signs${diag?" — "+diag:""}.</div></div>`; return; }
+  if(!rows.length){ slot.innerHTML=`<div class="card"><h3>Signs on this block</h3><div class="muted">No mapped signs within ~75 m. The dataset doesn't map every sign — the posted sign is the source of truth.</div></div>`; return; }
+  // dedupe true duplicates, sort by distance, group by side
+  const seen=new Set(); const uniq=[];
+  rows.forEach(r=>{ const k=signKey(r); if(seen.has(k))return; seen.add(k);
+    const x=+r.sign_x_coord,y=+r.sign_y_coord; r._d=(x-cx)*(x-cx)+(y-cy)*(y-cy); uniq.push(r); });
+  uniq.sort((a,b)=>a._d-b._d);
+  const orderSides=[], groups={};
+  uniq.forEach(r=>{ const s=r.side_of_street||"—"; if(!groups[s]){groups[s]=[];orderSides.push(s);} groups[s].push(r); });
+  let inner=`<div class="card"><h3>Signs on this block (${uniq.length})</h3>`;
+  orderSides.forEach(side=>{
+    inner+=`<div class="sideh">${esc(side)} side</div>`;
+    groups[side].forEach(r=>{
+      const isAsp=ASP_RE.test(r.sign_description||"");
+      inner+=`<div class="signline">${isAsp?'🧹 ':''}${esc(r.sign_description||r.sign_code||"Sign")}</div>`;
+    });
+  });
+  inner+=`</div>`;
+  slot.innerHTML=inner;
 }
 
 /* ---------- Parking-meter rates (NYC DOT, e7yp-wx55) ----------
@@ -799,8 +855,10 @@ function clusterIcon(cluster){
 }
 
 function signKey(row){
-  return row.objectid || row.order_number ||
-    (row.sign_x_coord+"_"+row.sign_y_coord+"_"+(row.sign_seq||row.sequence||""));
+  // Unique per physical sign. NOT order_number — one work order covers many
+  // signs on a block, so keying on it would collapse them into one marker.
+  return [row.sign_x_coord,row.sign_y_coord,row.sign_code,row.sign_description,row.sign_notes]
+    .map(v=>v==null?"":v).join("|");
 }
 
 function signLatLng(row){
@@ -827,8 +885,8 @@ function signMarker(row){
     html:`<div class="signpin ${isAsp?'asp':'other'}"><div class="face">${face}</div><div class="post"></div></div>`
   });
   const m = L.marker(ll,{icon});
-  // Tapping a sign shows the same block detail panel as tapping the map there.
-  m.on("click",()=>loadNearby(ll[0],ll[1]));
+  // Tapping a sign opens the block panel, flagged as a sign selection.
+  m.on("click",()=>loadNearby(ll[0],ll[1],row));
   return m;
 }
 
@@ -841,7 +899,7 @@ async function fetchSignRows(b){
   const xs=c.map(p=>p[0]), ys=c.map(p=>p[1]);
   const x1=Math.floor(Math.min(...xs)), x2=Math.ceil(Math.max(...xs));
   const y1=Math.floor(Math.min(...ys)), y2=Math.ceil(Math.max(...ys));
-  const sel="&$select=order_number,on_street,side_of_street,sign_description,sign_code,sign_x_coord,sign_y_coord&$limit="+SIGN_LIMIT;
+  const sel="&$select=order_number,on_street,side_of_street,sign_description,sign_code,sign_notes,sign_x_coord,sign_y_coord&$limit="+SIGN_LIMIT;
   const tries=[];
   if(signQueryMode!=="plain")
     tries.push({mode:"cast", w:`record_type='Current' AND sign_x_coord::number between ${x1} and ${x2} AND sign_y_coord::number between ${y1} and ${y2}`});
