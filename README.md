@@ -38,6 +38,20 @@ An interactive map of NYC street cleaning (Alternate Side Parking) schedules and
 
 ---
 
+## Updating the suspension calendar
+
+The Alternate Side Parking suspension calendar lives in **`suspensions.json`** (same repo). The app fetches it every time it opens, caches the last successful sync in the browser, and falls back gracefully: **live fetch → last sync → the built-in list baked into `index.html`**. The calendar modal shows the sync status ("Calendar updated …" / "Offline — using saved calendar").
+
+To change the calendar (e.g. for a new year), edit `suspensions.json` — no `index.html` change needed. Format:
+
+```json
+{ "year": 2026, "updated": "2026-07-22", "suspensions": [ ["2026-01-01", "New Year's Day"], … ] }
+```
+
+> There is no keyless, browser-accessible official NYC calendar API (the official one requires a subscription key and isn't CORS-enabled for static pages). Hosting the calendar as JSON here is the reliable pattern; it can later be auto-refreshed from NYC by a scheduled GitHub Action that rewrites `suspensions.json`.
+
+---
+
 ## Known limitations (read before relying on it)
 
 1. **The physical sign on the curb is always the legal source of truth.** Schedules vary block to block and even by side of street; the open dataset does not map every individual sign.
@@ -77,6 +91,7 @@ The current version shows as a badge next to the "StreetSweep" title in the head
 
 | Version | Notes |
 |---|---|
+| 1.8.0 | Suspension calendar auto-syncs from `suspensions.json` on open, caches last sync, falls back to built-in |
 | 1.7.1 | Show signs at a wider zoom (threshold 13) and load more per view |
 | 1.7.0 | Panel fully hides with a floating open button + close (✕); signs auto-zoom on enable and report load errors |
 | 1.6.1 | Fix sheet drag: lock page scroll (no rubber-band) and make the whole grip+header draggable |
