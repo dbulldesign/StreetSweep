@@ -187,7 +187,8 @@
 
   <div class="modal" id="calModal">
     <div class="modalbox">
-      <h2 style="margin:0 0 10px;font-size:16px;">2026 ASP Suspension Calendar</h2>
+      <h2 style="margin:0 0 4px;font-size:16px;">2026 ASP Suspension Calendar</h2>
+      <div id="calSync" class="muted" style="margin:0 0 10px;font-size:11px;"></div>
       <input id="calSearch" placeholder="Search a holiday or month…" autocomplete="off">
       <div id="calList" style="margin-top:12px;"></div>
       <div class="btn" id="calClose" style="margin-top:14px;">Close</div>
@@ -216,11 +217,14 @@
    ============================================================ */
 
 /* ---------- App version (bump on each change) ---------- */
-const APP_VERSION = "1.7.1";
+const APP_VERSION = "1.8.0";
 const APP_BUILT = "2026-07-22";
 
-/* ---------- 2026 ASP planned suspension calendar (DSNY) ---------- */
-const SUSPENSIONS_2026 = [
+/* ---------- ASP planned suspension calendar ----------
+   Built-in fallback (2026). On open the app tries to fetch a fresh copy
+   from suspensions.json (same origin), caches the last successful sync to
+   localStorage, and falls back: live fetch → last sync → this built-in. */
+const SUSPENSIONS_BUILTIN = [
   ["2026-01-01","New Year's Day"],
   ["2026-01-06","Three Kings' Day"],
   ["2026-01-19","Martin Luther King Jr. Day"],
@@ -262,6 +266,10 @@ const SUSPENSIONS_2026 = [
   ["2026-12-08","Immaculate Conception"],
   ["2026-12-25","Christmas Day"],
 ];
+let SUSPENSIONS = SUSPENSIONS_BUILTIN.slice();
+const SUSPENSIONS_URL = "suspensions.json";      // same-origin; edit to update calendar
+const LS_SUSP = "ss_susp_v1", LS_SUSP_AT = "ss_susp_at_v1";
+let syncInfo = { source:"built-in", at:null };
 
 /* ---------- Helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -273,7 +281,7 @@ const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-$
 const esc = s => String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 function suspensionFor(dateStr){
-  return SUSPENSIONS_2026.filter(s=>s[0]===dateStr).map(s=>s[1]);
+  return SUSPENSIONS.filter(s=>s[0]===dateStr).map(s=>s[1]);
 }
 
 /* ---------- Map setup ---------- */
@@ -334,7 +342,7 @@ function renderToday(){
 
   // next planned suspension + countdown
   const today0 = new Date(now.getFullYear(),now.getMonth(),now.getDate());
-  const future = SUSPENSIONS_2026.filter(s=>s[0]>=iso(now)).sort((a,b)=>a[0].localeCompare(b[0]));
+  const future = SUSPENSIONS.filter(s=>s[0]>=iso(now)).sort((a,b)=>a[0].localeCompare(b[0]));
   if(future.length){
     const n = future[0];
     const nd = new Date(n[0]+"T12:00");
@@ -363,8 +371,77 @@ function renderToday(){
   $("#sheetTitle").textContent = "Today in NYC";
   $("#sheetSub").textContent = fmtDate(now);
   $("#sheetBody").innerHTML = html;
+  updateStatusPill();
+}
+
+function updateStatusPill(){
+  const now=new Date(); const susp=suspensionFor(iso(now)); const isSunday=now.getDay()===0;
   $("#statuspill").innerHTML = susp.length ? '<b style="color:var(--good)">Suspended</b> today'
     : isSunday ? '<b>Sunday</b> · no ASP' : '<b style="color:var(--accent)">Active</b> today';
+}
+
+/* ---------- Suspension calendar sync (auto-update on open) ----------
+   Order of precedence: live fetch of suspensions.json → last successful
+   sync in localStorage → the built-in list. Never throws; failure just
+   keeps whatever we already have. */
+function syncMessage(){
+  if(syncInfo.source==="live") return "Calendar updated "+(syncInfo.at?relTime(syncInfo.at):"just now");
+  if(syncInfo.source==="cache") return "Offline — using saved calendar"+(syncInfo.at?" (synced "+relTime(syncInfo.at)+")":"");
+  return "Using built-in calendar (not yet synced)";
+}
+function relTime(iso){
+  const then=new Date(iso), now=new Date(), mins=Math.round((now-then)/60000);
+  if(isNaN(mins)) return "recently";
+  if(mins<1) return "just now";
+  if(mins<60) return mins+" min ago";
+  const hrs=Math.round(mins/60); if(hrs<24) return hrs+" hr ago";
+  return then.toLocaleDateString("en-US",{month:"short",day:"numeric"});
+}
+function normalizeSuspensions(raw){
+  const arr = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.suspensions) ? raw.suspensions : null);
+  if(!arr) return null;
+  const out=[];
+  for(const item of arr){
+    let date, label;
+    if(Array.isArray(item)){ date=item[0]; label=item[1]; }
+    else if(item && typeof item==="object"){ date=item.date||item[0]; label=item.label||item.name||item[1]; }
+    if(typeof date==="string" && /^\d{4}-\d{2}-\d{2}$/.test(date) && typeof label==="string" && label)
+      out.push([date, label]);
+  }
+  return out.length ? out : null;
+}
+function applySuspensions(list, source, at){
+  SUSPENSIONS = list; syncInfo = { source, at:at||null };
+  updateStatusPill();
+  if($("#sheetTitle").textContent==="Today in NYC" && sheetOpen) renderToday();
+  if($("#calModal").classList.contains("show")) renderCal($("#calSearch").value);
+}
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+
+function initSuspensions(){
+  // 1) seed from last sync if present, so we start with the freshest cache.
+  const cached = normalizeSuspensions(JSON.parse(lsGet(LS_SUSP)||"null"));
+  if(cached) applySuspensions(cached, "cache", lsGet(LS_SUSP_AT));
+  // 2) try to refresh from the network (non-blocking).
+  syncSuspensions();
+}
+async function syncSuspensions(){
+  try{
+    const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),7000);
+    const r=await fetch(SUSPENSIONS_URL+"?t="+encodeURIComponent(iso(new Date())),{signal:ctrl.signal,cache:"no-store"});
+    clearTimeout(to);
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const list=normalizeSuspensions(await r.json());
+    if(!list) throw new Error("bad format");
+    const at=new Date().toISOString();
+    lsSet(LS_SUSP, JSON.stringify(list)); lsSet(LS_SUSP_AT, at);
+    applySuspensions(list, "live", at);
+    console.log(`[calendar] synced ${list.length} suspensions`);
+  }catch(e){
+    // Keep cache/built-in silently; the sync line reflects the state.
+    console.warn("[calendar] sync failed:", e.message);
+  }
 }
 
 /* ---------- Parse a schedule string into day flags ---------- */
@@ -645,7 +722,8 @@ map.on("click",e=>{ loadNearby(e.latlng.lat,e.latlng.lng); });
 function renderCal(filter=""){
   const f=filter.trim().toLowerCase();
   const now=iso(new Date());
-  const list = SUSPENSIONS_2026
+  const sy=$("#calSync"); if(sy) sy.textContent = syncMessage();
+  const list = SUSPENSIONS
     .filter(s=>!f || s[1].toLowerCase().includes(f) ||
       new Date(s[0]+"T12:00").toLocaleDateString("en-US",{month:"long"}).toLowerCase().includes(f))
     .sort((a,b)=>a[0].localeCompare(b[0]));
@@ -848,6 +926,7 @@ console.log(`StreetSweep v${APP_VERSION} (built ${APP_BUILT})`);
 renderToday();
 openSheet();
 if(!signsAvailable()) $("#signsBtn").style.display="none";
+initSuspensions();
 </script>
 </body>
 </html>
